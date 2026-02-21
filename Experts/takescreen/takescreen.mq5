@@ -2,6 +2,8 @@
 //|                                          DailyScreenShot.mq5    |
 //|                               Copyright 2025, Seu Nome / Grok help |
 //|                                             https://www.mql5.com |
+// as imagens ficam na pasta C:\Users\anael\AppData\Roaming\MetaQuotes\Terminal\38FF261A42172F3478E54D3A1A8FE02B\MQL5\Files
+// os logs ficam na pasta C:\Users\anael\AppData\Roaming\MetaQuotes\Terminal\Common\Files
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, Seu Nome / Grok help"
 #property link      "https://www.mql5.com"
