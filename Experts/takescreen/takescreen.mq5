@@ -15,6 +15,7 @@
 input string   Ativos                  = "ABEV3,ALPA3,ASAI3,AZUL4,BBAS3,BBDC3,BBSE3,BEEF3,B3SA3,BRAP3,BRFS3,BRKM3,CASH3,CMIG3,COGN3,CPFE3,CRFB3,CSNA3,CVCB3,CYRE3,ELET3,EMBR3,EQTL3,EZTC3,FLRY3,GGBR3,GOAU3,GOLL4,HAPV3,HYPE3,ITUB3,JBSS3,KLBN3,LREN3,LWSA3,MGLU3,MRVE3,PCAR3,PETR3,PETZ3,POSI3,PRIO3,QUAL3,RADL3,RAIL3,RDOR3,RECV3,RENT3,SANB3,SBSP3,SUZB3,TAEE3,TIMS3,TOTS3,USIM5,VALE3,VIVT3,WEGE3,YDUQ3";      
 input int      Hora_Execucao           = 18;                       // 0–23 (horário do servidor da corretora)
 input int      Minuto_Execucao         = 5;                        // 0–59
+input int      Offset_Minutos          = 30;                       // offset para escalonar execucoes (ex: +30min)
 input ENUM_TIMEFRAMES Timeframe        = PERIOD_D1;                // Período dos gráficos
 input string   Nome_Template           = "default.tpl";            // ← Nome exato da sua template (com .tpl)
 input int      Largura_Imagem          = 1280;
@@ -22,20 +23,59 @@ input int      Altura_Imagem           = 720;
 input int      Delay_Apos_Abrir_ms     = 3000;                     // milissegundos
 input int      Delay_Apos_Template_ms  = 3500;                     // tempo extra após template (ajuste se necessário)
 input bool     TestarAgora             = true;                    // true = executa IMEDIATAMENTE ao anexar/reiniciar (para teste)
+input int      Timer_Intervalo_Seg     = 60;                       // verifica a cada N segundos
 string LogFileName = "ScreenshotLog.txt";
 int log_handle = INVALID_HANDLE;
 //------------------------------------------------------------------------
 
 datetime ultimo_dia_executado = 0;
 
+datetime DayStart(datetime t)
+{
+   MqlDateTime dt;
+   TimeToStruct(t, dt);
+   dt.hour = 0;
+   dt.min  = 0;
+   dt.sec  = 0;
+   return StructToTime(dt);
+}
+
+datetime ScheduledTimeForDay(const datetime day_start)
+{
+   return day_start + (Hora_Execucao * 3600) + (Minuto_Execucao * 60) + (Offset_Minutos * 60);
+}
+
+void MaybeRunToday()
+{
+   datetime now = TimeCurrent();
+   datetime today = DayStart(now);
+   if(today == ultimo_dia_executado)
+      return;
+
+   datetime scheduled = ScheduledTimeForDay(today);
+   if(now < scheduled)
+      return;
+
+   ultimo_dia_executado = today;
+
+   Print("══════════════════════════════════════════════");
+   Print("Rotina diária iniciada (horário agendado) – ", TimeToString(TimeCurrent()));
+   Print("══════════════════════════════════════════════");
+
+   ExecutarRotinaDeScreenshots();
+
+   Print("Próxima execução prevista para amanhã ≈ ", Hora_Execucao, ":", StringFormat("%02d", Minuto_Execucao), " (offset ", Offset_Minutos, "min)");
+   Print("══════════════════════════════════════════════");
+}
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                     |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   EventSetTimer(60); // verifica a cada 60 segundos
+   EventSetTimer(MathMax(1, Timer_Intervalo_Seg)); // verifica a cada N segundos
    Print("EA DailyScreenShot iniciado");
-   Print("Agendamento: ", Hora_Execucao, ":", StringFormat("%02d", Minuto_Execucao));
+   Print("Agendamento: ", Hora_Execucao, ":", StringFormat("%02d", Minuto_Execucao), " (offset ", Offset_Minutos, "min)");
    Print("Template: ", Nome_Template);
    Print("TestarAgora = ", TestarAgora ? "SIM (executará agora)" : "não");
    return(INIT_SUCCEEDED);
@@ -69,24 +109,7 @@ void OnTimer()
    }
    // ──────────────────────────────────────────────
 
-   // Modo normal: verifica horário agendado
-   MqlDateTime hora_atual;
-   TimeToStruct(TimeCurrent(), hora_atual);
-
-   if(hora_atual.day_of_year == ultimo_dia_executado) return;
-   if(hora_atual.hour != Hora_Execucao) return;
-   if(hora_atual.min  != Minuto_Execucao) return;
-
-   ultimo_dia_executado = hora_atual.day_of_year;
-
-   Print("══════════════════════════════════════════════");
-   Print("Rotina diária iniciada (horário agendado) – ", TimeToString(TimeCurrent()));
-   Print("══════════════════════════════════════════════");
-
-   ExecutarRotinaDeScreenshots();
-
-   Print("Próxima execução prevista para amanhã ≈ ", Hora_Execucao, ":", StringFormat("%02d", Minuto_Execucao));
-   Print("══════════════════════════════════════════════");
+   MaybeRunToday();
 }
 
 //+------------------------------------------------------------------+
@@ -147,8 +170,7 @@ void ExecutarRotinaDeScreenshots()
       FileWrite(log_handle, msg);
       Sleep(Delay_Apos_Template_ms);
       
-      string filename = simbolo + "_" + PeriodoParaString(Timeframe) + "_"
-                      + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + ".png";
+      string filename = StringFormat("%s_%s_%s.png", simbolo, PeriodoParaString(Timeframe), TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES));
       StringReplace(filename, ":", "-");
       StringReplace(filename, " ", "_");
       // StringReplace(filename, ".", "-");  // comentei pois pode quebrar se quiser .png

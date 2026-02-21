@@ -8,6 +8,9 @@ input ENUM_TIMEFRAMES InpTimeframe = PERIOD_D1;
 input int InpPeriodLookback = 20;
 input int InpMinTouchPoints = 2;
 input int InpTimerSeconds = 300;
+input int InpDailyHour = 18;
+input int InpDailyMinute = 0;
+input int InpDailyOffsetMinutes = 10;
 
 struct TrendLine
 {
@@ -64,6 +67,26 @@ datetime DayStart(datetime t)
    dt.min  = 0;
    dt.sec  = 0;
    return StructToTime(dt);
+}
+
+datetime ScheduledTimeForDay(const datetime day_start)
+{
+   return day_start + (InpDailyHour * 3600) + (InpDailyMinute * 60) + (InpDailyOffsetMinutes * 60);
+}
+
+void MaybeRunToday()
+{
+   datetime now = TimeCurrent();
+   datetime today = DayStart(now);
+   if(today == g_last_run_day)
+      return;
+
+   datetime scheduled = ScheduledTimeForDay(today);
+   if(now < scheduled)
+      return;
+
+   RunOnceAllTickers();
+   g_last_run_day = today;
 }
 
 string JsonEscape(const string s)
@@ -367,8 +390,7 @@ int OnInit()
    EventSetTimer(MathMax(1, InpTimerSeconds));
    g_last_run_day = 0;
 
-   RunOnceAllTickers();
-   g_last_run_day = DayStart(TimeCurrent());
+   MaybeRunToday();
 
    return INIT_SUCCEEDED;
 }
@@ -380,10 +402,5 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
-   datetime today = DayStart(TimeCurrent());
-   if(today == g_last_run_day)
-      return;
-
-   RunOnceAllTickers();
-   g_last_run_day = today;
+   MaybeRunToday();
 }

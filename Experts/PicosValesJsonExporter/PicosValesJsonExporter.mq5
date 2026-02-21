@@ -10,6 +10,9 @@ input int    InpMinDaysBetweenPeaks = 7;     // Minimo de dias entre picos/vales
 input int    InpTopCount = 5;                // Quantidade maxima de picos e vales
 input int    InpScanBars = 1500;             // Quantidade de candles D1 para analisar
 input int    InpTimerSeconds = 300;          // Intervalo do timer (segundos). EA roda no max 1x/dia
+input int    InpDailyHour = 18;
+input int    InpDailyMinute = 0;
+input int    InpDailyOffsetMinutes = 0;
 
 struct PeakValley
 {
@@ -66,6 +69,26 @@ datetime DayStart(datetime t)
    dt.min  = 0;
    dt.sec  = 0;
    return StructToTime(dt);
+}
+
+datetime ScheduledTimeForDay(const datetime day_start)
+{
+   return day_start + (InpDailyHour * 3600) + (InpDailyMinute * 60) + (InpDailyOffsetMinutes * 60);
+}
+
+void MaybeRunToday()
+{
+   datetime now = TimeCurrent();
+   datetime today = DayStart(now);
+   if(today == g_last_run_day)
+      return;
+
+   datetime scheduled = ScheduledTimeForDay(today);
+   if(now < scheduled)
+      return;
+
+   RunOnceAllTickers();
+   g_last_run_day = today;
 }
 
 bool IsValidTimeDistance(datetime t, PeakValley &existing[], int count, int min_days)
@@ -152,7 +175,7 @@ bool WriteJsonForSymbol(const string symbol,
                                const int min_days,
                                const int scan_bars)
 {
-   string filename = symbol + ".json";
+   string filename = symbol + ".pico_vale.json";
 
    int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(h == INVALID_HANDLE)
@@ -349,9 +372,7 @@ int OnInit()
    EventSetTimer(MathMax(1, InpTimerSeconds));
    g_last_run_day = 0;
 
-   // Rodar ao iniciar
-   RunOnceAllTickers();
-   g_last_run_day = DayStart(TimeCurrent());
+   MaybeRunToday();
 
    return INIT_SUCCEEDED;
 }
@@ -363,10 +384,5 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
-   datetime today = DayStart(TimeCurrent());
-   if(today == g_last_run_day)
-      return;
-
-   RunOnceAllTickers();
-   g_last_run_day = today;
+   MaybeRunToday();
 }
