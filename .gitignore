@@ -1,6 +1,15 @@
 *.ex5
-logs
+Logs
 Profiles
 experts.dat
-Images
-Include
+Files
+
+Experts/Advisors
+Experts/Examples
+Experts/Free Robots
+
+Indicators/Examples
+Indicators/Free Indicators
+
+Scripts/Examples
+Scripts/UnitTests
