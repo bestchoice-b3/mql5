@@ -176,6 +176,9 @@ bool WriteJsonForSymbol(const string symbol,
                                const PeakValley &valleys[], int valleys_count,
                                const double ma_current,
                                const double price_current,
+                               const double current_percentage,
+                               const bool signal_sell,
+                               const bool signal_buy,
                                const int ma_period,
                                const ENUM_MA_METHOD ma_method,
                                const int min_days,
@@ -195,6 +198,10 @@ bool WriteJsonForSymbol(const string symbol,
    FileWriteString(h, "  \"timeframe\": \"D1\"," + NL);
    FileWriteString(h, StringFormat("  \"ma_current\": %.10f,%s", ma_current, NL));
    FileWriteString(h, StringFormat("  \"price_current\": %.10f,%s", price_current, NL));
+   FileWriteString(h, StringFormat("  \"current_price\": %.10f,%s", price_current, NL));
+   FileWriteString(h, StringFormat("  \"current_percentage\": %.6f,%s", current_percentage, NL));
+   FileWriteString(h, StringFormat("  \"signal_sell\": %s,%s", (signal_sell ? "true" : "false"), NL));
+   FileWriteString(h, StringFormat("  \"signal_buy\": %s,%s", (signal_buy ? "true" : "false"), NL));
    FileWriteString(h, StringFormat("  \"generated_at\": \"%s\",%s", DateTimeToIso(TimeCurrent()), NL));
    FileWriteString(h, "  \"params\": {" + NL);
    FileWriteString(h, StringFormat("    \"ma_period\": %d,%s", ma_period, NL));
@@ -268,6 +275,14 @@ bool ComputeForSymbol(const string symbol)
       return false;
    }
 
+   int bars_common = MathMin(copied, ma_copied);
+   if(bars_common <= InpMAPeriod + 2)
+   {
+      PrintFormat("Dados insuficientes apos copiar MA para %s (bars_common=%d)", symbol, bars_common);
+      IndicatorRelease(ma_handle);
+      return false;
+   }
+
    PeakValley peaks[50];
    PeakValley valleys[50];
    int peaks_count = 0;
@@ -278,9 +293,9 @@ bool ComputeForSymbol(const string symbol)
 
    // i=0 eh candle atual. Procuramos picos/vales nos candles fechados.
    // Vamos varrer do mais antigo pro mais recente para manter a regra de distancia em dias.
-   for(int i = copied - 2; i >= 1; i--)
+   for(int i = bars_common - 2; i >= 1; i--)
    {
-      if(ma[i] == 0.0)
+      if(ma[i] <= 0.0 || ma[i] == EMPTY_VALUE)
          continue;
 
       bool is_peak   = (rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high);
@@ -345,7 +360,7 @@ bool ComputeForSymbol(const string symbol)
    SortByPercentageDesc(valleys, valleys_count);
 
    double ma_current = ma[0];
-   if(ma_current == 0.0 && copied > 1)
+   if((ma_current <= 0.0 || ma_current == EMPTY_VALUE) && bars_common > 1)
       ma_current = ma[1];
 
    double price_current = 0.0;
@@ -355,7 +370,38 @@ bool ComputeForSymbol(const string symbol)
          price_current = rates[0].close;
    }
 
-   bool ok = WriteJsonForSymbol(symbol, peaks, peaks_count, valleys, valleys_count, ma_current, price_current, InpMAPeriod, InpMAMethod, InpMinDaysBetweenPeaks, need_bars);
+   double current_percentage = 0.0;
+   if(ma_current > 0.0 && ma_current != EMPTY_VALUE)
+      current_percentage = ((price_current - ma_current) / ma_current) * 100.0;
+
+   bool signal_sell = false;
+   if(price_current > ma_current)
+   {
+      for(int i = 0; i < peaks_count; i++)
+      {
+         if(current_percentage > (peaks[i].percentage * 0.9))
+         {
+            signal_sell = true;
+            break;
+         }
+      }
+   }
+
+   bool signal_buy = false;
+   if(price_current < ma_current)
+   {
+      double current_pct_abs = MathAbs(current_percentage);
+      for(int i = 0; i < valleys_count; i++)
+      {
+         if(current_pct_abs > (valleys[i].percentage * 0.9))
+         {
+            signal_buy = true;
+            break;
+         }
+      }
+   }
+
+   bool ok = WriteJsonForSymbol(symbol, peaks, peaks_count, valleys, valleys_count, ma_current, price_current, current_percentage, signal_sell, signal_buy, InpMAPeriod, InpMAMethod, InpMinDaysBetweenPeaks, need_bars);
 
    IndicatorRelease(ma_handle);
    return ok;
