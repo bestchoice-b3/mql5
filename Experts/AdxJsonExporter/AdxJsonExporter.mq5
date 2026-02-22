@@ -9,11 +9,15 @@ input string Ativos3 = "VALE3,VIVT3,WEGE3,YDUQ3";
 input ENUM_TIMEFRAMES InpTimeframe = PERIOD_D1;
 input int InpAdxPeriod = 21;
 input int InpTimerSeconds = 300;
-input int InpDailyHour = 18;
+input int InpDailyHour = 12;
 input int InpDailyMinute = 0;
-input int InpDailyOffsetMinutes = 20;
+input int InpDailyOffsetMinutes = 4;
+input int InpDailyHour2 = 16;
+input int InpDailyMinute2 = 0;
+input int InpDailyOffsetMinutes2 = 4;
 
 datetime g_last_run_day = 0;
+datetime g_last_run_day2 = 0;
 const string NL = "\n";
 
 string LogFileName = "AdxJsonExporterLog.txt";
@@ -68,19 +72,31 @@ datetime ScheduledTimeForDay(const datetime day_start)
    return day_start + (InpDailyHour * 3600) + (InpDailyMinute * 60) + (InpDailyOffsetMinutes * 60);
 }
 
+datetime ScheduledTimeForDay2(const datetime day_start)
+{
+   return day_start + (InpDailyHour2 * 3600) + (InpDailyMinute2 * 60) + (InpDailyOffsetMinutes2 * 60);
+}
+
 void MaybeRunToday()
 {
    datetime now = TimeCurrent();
    datetime today = DayStart(now);
-   if(today == g_last_run_day)
-      return;
 
-   datetime scheduled = ScheduledTimeForDay(today);
-   if(now < scheduled)
+   datetime scheduled2 = ScheduledTimeForDay2(today);
+   if(now >= scheduled2 && today != g_last_run_day2)
+   {
+      RunOnceAllTickers();
+      g_last_run_day2 = today;
       return;
+   }
 
-   RunOnceAllTickers();
-   g_last_run_day = today;
+   datetime scheduled1 = ScheduledTimeForDay(today);
+   if(now >= scheduled1 && today != g_last_run_day)
+   {
+      RunOnceAllTickers();
+      g_last_run_day = today;
+      return;
+   }
 }
 
 string JsonEscape(const string s)
@@ -271,6 +287,7 @@ int OnInit()
 {
    EventSetTimer(MathMax(1, InpTimerSeconds));
    g_last_run_day = 0;
+   g_last_run_day2 = 0;
 
    MaybeRunToday();
 
