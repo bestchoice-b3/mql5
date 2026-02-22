@@ -3,7 +3,9 @@
 //+------------------------------------------------------------------+
 #property strict
 
-input string InpTickers = "ABEV3,ALPA3,ASAI3,AZUL4,BBAS3,BBDC3,BBSE3,BEEF3,B3SA3,BRAP3,BRFS3,BRKM3,CASH3,CMIG3,COGN3,CPFE3,CRFB3,CSNA3,CVCB3,CYRE3,ELET3,EMBR3,EQTL3,EZTC3,FLRY3,GGBR3,GOAU3,GOLL4,HAPV3,HYPE3,ITUB3,JBSS3,KLBN3,LREN3,LWSA3,MGLU3,MRVE3,PCAR3,PETR3,PETZ3,POSI3,PRIO3,QUAL3,RADL3,RAIL3,RDOR3,RECV3,RENT3,SANB3,SBSP3,SUZB3,TAEE3,TIMS3,TOTS3,USIM5,VALE3,VIVT3,WEGE3,YDUQ3";
+input string Ativos = "ABEV3,ALPA3,ASAI3,AZUL4,BBAS3,BBDC3,BBSE3,BEEF3,B3SA3,BRAP3,BRFS3,BRKM3,CASH3,CMIG3,COGN3,CPFE3,CRFB3,CSNA3,CVCB3,CYRE3,ELET3,EMBR3,EQTL3,EZTC3,FLRY3,GGBR3,GOAU3,GOLL4,HAPV3";
+input string Ativos2 = "HYPE3,ITUB3,JBSS3,KLBN3,LREN3,LWSA3,MGLU3,MRVE3,PCAR3,PETR3,PETZ3,POSI3,PRIO3,QUAL3,RADL3,RAIL3,RDOR3,RECV3,RENT3,SANB3,SBSP3,SUZB3,TAEE3,TIMS3,TOTS3,USIM5";
+input string Ativos3 = "VALE3,VIVT3,WEGE3,YDUQ3";
 input ENUM_TIMEFRAMES InpTimeframe = PERIOD_D1;
 input int InpAdxPeriod = 21;
 input int InpTimerSeconds = 300;
@@ -13,6 +15,9 @@ input int InpDailyOffsetMinutes = 20;
 
 datetime g_last_run_day = 0;
 const string NL = "\n";
+
+string LogFileName = "AdxJsonExporterLog.txt";
+int log_handle = INVALID_HANDLE;
 
 string Trim(const string s)
 {
@@ -204,20 +209,61 @@ bool ComputeForSymbol(const string symbol)
 
 void RunOnceAllTickers()
 {
+   log_handle = FileOpen(LogFileName, FILE_READ|FILE_WRITE|FILE_TXT|FILE_COMMON|FILE_ANSI);
+   if(log_handle != INVALID_HANDLE)
+      FileSeek(log_handle, 0, SEEK_END);
+
+   if(log_handle != INVALID_HANDLE)
+      FileWrite(log_handle, "=== Inicio da rotina: ", TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS), " ===");
+
+   string tickers_all = Ativos;
+   if(StringLen(Ativos2) > 0)
+      tickers_all = tickers_all + "," + Ativos2;
+   if(StringLen(Ativos3) > 0)
+      tickers_all = tickers_all + "," + Ativos3;
+
    string syms[];
-   int n = SplitTickers(InpTickers, syms);
+   int n = SplitTickers(tickers_all, syms);
+   if(log_handle != INVALID_HANDLE)
+      FileWrite(log_handle, "Total ativos lidos: ", IntegerToString(n));
    if(n <= 0)
    {
-      Print("Nenhum ticker informado em InpTickers");
+      Print("Nenhum ticker informado em Ativos/Ativos2/Ativos3");
+      if(log_handle != INVALID_HANDLE)
+      {
+         FileWrite(log_handle, "Nenhum ticker informado");
+         FileWrite(log_handle, "=== Rotina finalizada ===");
+         FileClose(log_handle);
+         log_handle = INVALID_HANDLE;
+      }
       return;
    }
 
    for(int i = 0; i < n; i++)
    {
       string symbol = syms[i];
+      if(log_handle != INVALID_HANDLE)
+         FileWrite(log_handle, "Ativo: ", symbol);
       bool ok = ComputeForSymbol(symbol);
       if(ok)
+      {
          PrintFormat("JSON gerado: %s.adx.json", symbol);
+         if(log_handle != INVALID_HANDLE)
+            FileWrite(log_handle, "OK: ", symbol);
+      }
+      else
+      {
+         int err = GetLastError();
+         if(log_handle != INVALID_HANDLE)
+            FileWrite(log_handle, "FALHA ao processar: ", symbol, " erro=", IntegerToString(err));
+      }
+   }
+
+   if(log_handle != INVALID_HANDLE)
+   {
+      FileWrite(log_handle, "=== Rotina finalizada ===");
+      FileClose(log_handle);
+      log_handle = INVALID_HANDLE;
    }
 }
 

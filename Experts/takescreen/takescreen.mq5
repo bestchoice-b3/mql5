@@ -12,7 +12,9 @@
 #property description "Tira screenshot diário dos gráficos com template aplicada + teste imediato"
 
 //------------------------------------------------------------------------
-input string   Ativos                  = "ABEV3,ALPA3,ASAI3,AZUL4,BBAS3,BBDC3,BBSE3,BEEF3,B3SA3,BRAP3,BRFS3,BRKM3,CASH3,CMIG3,COGN3,CPFE3,CRFB3,CSNA3,CVCB3,CYRE3,ELET3,EMBR3,EQTL3,EZTC3,FLRY3,GGBR3,GOAU3,GOLL4,HAPV3,HYPE3,ITUB3,JBSS3,KLBN3,LREN3,LWSA3,MGLU3,MRVE3,PCAR3,PETR3,PETZ3,POSI3,PRIO3,QUAL3,RADL3,RAIL3,RDOR3,RECV3,RENT3,SANB3,SBSP3,SUZB3,TAEE3,TIMS3,TOTS3,USIM5,VALE3,VIVT3,WEGE3,YDUQ3";      
+input string   Ativos                  = "ABEV3,ALPA3,ASAI3,AZUL4,BBAS3,BBDC3,BBSE3,BEEF3,B3SA3,BRAP3,BRFS3,BRKM3,CASH3,CMIG3,COGN3,CPFE3,CRFB3,CSNA3,CVCB3,CYRE3,ELET3,EMBR3,EQTL3,EZTC3,FLRY3,GGBR3,GOAU3,GOLL4,HAPV3";      
+input string   Ativos2                 = "HYPE3,ITUB3,JBSS3,KLBN3,LREN3,LWSA3,MGLU3,MRVE3,PCAR3,PETR3,PETZ3,POSI3,PRIO3,QUAL3,RADL3,RAIL3,RDOR3,RECV3,RENT3,SANB3,SBSP3,SUZB3,TAEE3,TIMS3,TOTS3,USIM5";
+input string   Ativos3                 = "VALE3,VIVT3,WEGE3,YDUQ3";
 input int      Hora_Execucao           = 18;                       // 0–23 (horário do servidor da corretora)
 input int      Minuto_Execucao         = 5;                        // 0–59
 input int      Offset_Minutos          = 30;                       // offset para escalonar execucoes (ex: +30min)
@@ -117,20 +119,29 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void ExecutarRotinaDeScreenshots()
 {
-   log_handle = FileOpen(LogFileName, FILE_WRITE|FILE_TXT|FILE_COMMON|FILE_ANSI); // FILE_COMMON = pasta comum se quiser, mas use FILE_READ|FILE_WRITE para append
+   log_handle = FileOpen(LogFileName, FILE_READ|FILE_WRITE|FILE_TXT|FILE_COMMON|FILE_ANSI);
    if(log_handle == INVALID_HANDLE)
    {
       Print("Falha ao abrir log: ", LogFileName, " erro=", GetLastError());
       return;
    }
+
+   FileSeek(log_handle, 0, SEEK_END);
    
    FileWrite(log_handle, "=== Início da rotina: ", TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS), " ===");
    FileWrite(log_handle, "Timeframe: ", EnumToString(Timeframe));
    FileWrite(log_handle, "Template: ", Nome_Template);
    FileWrite(log_handle, "");
-   
+
+   string ativos_all = Ativos;
+   if(StringLen(Ativos2) > 0)
+      ativos_all = ativos_all + "," + Ativos2;
+   if(StringLen(Ativos3) > 0)
+      ativos_all = ativos_all + "," + Ativos3;
+
    string lista_ativos[];
-   int count = StringSplit(Ativos, ',', lista_ativos);
+   int count = StringSplit(ativos_all, ',', lista_ativos);
+   FileWrite(log_handle, "Total ativos lidos: ", IntegerToString(count));
    
    for(int i = 0; i < count; i++)
    {
@@ -138,11 +149,23 @@ void ExecutarRotinaDeScreenshots()
       StringTrimLeft(simbolo);
       StringTrimRight(simbolo);
       if(simbolo == "") continue;
-      
+
+      FileWrite(log_handle, "---");
+      FileWrite(log_handle, "Ativo: ", simbolo);
+
       string msg = "Processando: " + simbolo + " " + EnumToString(Timeframe);
       Print(msg);
       FileWrite(log_handle, msg);
+
+      if(!SymbolSelect(simbolo, true))
+      {
+         int err = GetLastError();
+         msg = "→ SymbolSelect falhou " + simbolo + "  erro = " + IntegerToString(err);
+         Print(msg);
+         FileWrite(log_handle, msg);
+      }
       
+      ResetLastError();
       long chart_id = ChartOpen(simbolo, Timeframe);
       if(chart_id <= 0)
       {
@@ -155,6 +178,7 @@ void ExecutarRotinaDeScreenshots()
       
       Sleep(Delay_Apos_Abrir_ms);
       
+      ResetLastError();
       if(!ChartApplyTemplate(chart_id, Nome_Template))
       {
          int err = GetLastError();
@@ -175,6 +199,7 @@ void ExecutarRotinaDeScreenshots()
       StringReplace(filename, " ", "_");
       // StringReplace(filename, ".", "-");  // comentei pois pode quebrar se quiser .png
       
+      ResetLastError();
       if(ChartScreenShot(chart_id, filename, Largura_Imagem, Altura_Imagem, ALIGN_CENTER))
       {
          msg = "  OK → salvo: " + filename;
