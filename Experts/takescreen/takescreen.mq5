@@ -14,7 +14,7 @@
 //------------------------------------------------------------------------
 input string   Ativos                  = "ABEV3,ALPA3,ASAI3,AZUL4,BBAS3,BBDC3,BBSE3,BEEF3,B3SA3,BRAP3,BRFS3,BRKM3,CASH3,CMIG3,COGN3,CPFE3,CRFB3,CSNA3,CVCB3,CYRE3,ELET3,EMBR3,EQTL3,EZTC3,FLRY3,GGBR3,GOAU3,GOLL4,HAPV3";      
 input string   Ativos2                 = "HYPE3,ITUB3,JBSS3,KLBN3,LREN3,LWSA3,MGLU3,MRVE3,PCAR3,PETR3,PETZ3,POSI3,PRIO3,QUAL3,RADL3,RAIL3,RDOR3,RECV3,RENT3,SANB3,SBSP3,SUZB3,TAEE3,TIMS3,TOTS3,USIM5";
-input string   Ativos3                 = "VALE3,VIVT3,WEGE3,YDUQ3";
+input string   Ativos3                 = "VALE3,VIVT3,WEGE3,YDUQ3,SOJA3";
 input int      Hora_Execucao           = 12;                       // 0–23 (horário do servidor da corretora)
 input int      Minuto_Execucao         = 0;                        // 0–59
 input int      Offset_Minutos          = 6;                        // offset para escalonar execucoes (ex: +30min)
