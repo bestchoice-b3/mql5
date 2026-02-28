@@ -219,9 +219,7 @@ void ExecutarRotinaDeScreenshots()
       FileWrite(log_handle, msg);
       Sleep(Delay_Apos_Template_ms);
       
-      string filename = StringFormat("%s_%s_%s.png", simbolo, PeriodoParaString(Timeframe), TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES));
-      StringReplace(filename, ":", "-");
-      StringReplace(filename, " ", "_");
+      string filename = StringFormat("%s_%s.png", simbolo, PeriodoParaString(Timeframe));
       // StringReplace(filename, ".", "-");  // comentei pois pode quebrar se quiser .png
       
       ResetLastError();
