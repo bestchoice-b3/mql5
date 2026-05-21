@@ -27,7 +27,7 @@ input int      Largura_Imagem          = 1280;
 input int      Altura_Imagem           = 720;
 input int      Delay_Apos_Abrir_ms     = 3000;                     // milissegundos
 input int      Delay_Apos_Template_ms  = 3500;                     // tempo extra após template (ajuste se necessário)
-input bool     TestarAgora             = true;                    // true = executa IMEDIATAMENTE ao anexar/reiniciar (para teste)
+input bool     TestarAgora             = false;                    // true = executa IMEDIATAMENTE ao anexar/reiniciar (para teste)
 input int      Timer_Intervalo_Seg     = 60;                       // verifica a cada N segundos
 string LogFileName = "ScreenshotLog.txt";
 int log_handle = INVALID_HANDLE;
