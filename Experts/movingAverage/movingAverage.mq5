@@ -217,9 +217,9 @@ void CheckAndSend(string trigger)
       }
    }
 
-   double ma_value      = ma_buffer[0];
-   double ma_prev       = ma_buffer[1];
-   double current_price = SymbolInfoDouble(g_ticker, SYMBOL_BID);
+   double ma_value      = ma_buffer[1];
+   double ma_prev       = ma_buffer[2];
+   double current_price = iClose(g_ticker, PERIOD_D1, 1);
    double ask_price     = SymbolInfoDouble(g_ticker, SYMBOL_ASK);
 
    if(ma_value <= 0 || current_price <= 0)
@@ -309,9 +309,9 @@ void CheckAndSendForSymbol(const string symbol, const string trigger)
       }
    }
 
-   double ma_value      = ma_buffer[0];
-   double ma_prev       = ma_buffer[1];
-   double current_price = SymbolInfoDouble(sym, SYMBOL_BID);
+   double ma_value      = ma_buffer[1];
+   double ma_prev       = ma_buffer[2];
+   double current_price = iClose(sym, PERIOD_D1, 1);
    double ask_price     = SymbolInfoDouble(sym, SYMBOL_ASK);
 
    if(ma_value <= 0 || current_price <= 0)
@@ -357,7 +357,7 @@ void CheckAndSendForSymbol(const string symbol, const string trigger)
 //+------------------------------------------------------------------+
 void SendForAllSymbols(const string trigger)
 {
-   string list[];
+   //string list[];
    string parts[];
 
    SplitCsv(Ativos, parts);
