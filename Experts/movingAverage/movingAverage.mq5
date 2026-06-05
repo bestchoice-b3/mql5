@@ -6,6 +6,8 @@
 #property version   "1.10"
 #property strict
 
+#include <TickersProvider.mqh>
+
 // ──────────────────────────────────────────────
 //  Parâmetros de entrada
 // ──────────────────────────────────────────────
@@ -13,10 +15,6 @@ input string N8N_Webhook_URL = "http://127.0.0.1:5678/webhook/ma9-monitor"; // U
 input int    MA_Period        = 9;            // Período da média móvel
 input ENUM_MA_METHOD   MA_Method  = MODE_SMA;       // Tipo de MA
 input ENUM_APPLIED_PRICE MA_Price = PRICE_CLOSE;    // Preço aplicado
-
-input string   Ativos  = "ABEV3,ALPA3,ASAI3,AZUL4,BBAS3,BBDC3,BBSE3,BEEF3,B3SA3,BRAP3,BRFS3,BRKM3,CASH3,CMIG3,COGN3,CPFE3,CRFB3,CSNA3,CVCB3,CYRE3,LIPR3,EMBJ3,EQTL3,EZTC3,FLRY3,GGBR3,GOAU3,GOLL4,HAPV3";
-input string   Ativos2 = "HYPE3,ITUB3,JBSS3,KLBN3,LREN3,LWSA3,MGLU3,MRVE3,PCAR3,PETR3,PETZ3,POSI3,PRIO3,QUAL3,RADL3,RAIL3,RDOR3,RECV3,RENT3,SANB3,SBSP3,SUZB3,TAEE3,TIMS3,TOTS3,USIM5";
-input string   Ativos3 = "VALE3,VIVT3,WEGE3,YDUQ3,SOJA3,CMIN3,VLID3,POMO4,VIVA3,RANI3,FIQE3,ROMI3,ALOS3,BLAU3,CAMB3,EGIE3,ENMT3,EQPA3,FESA4,INTB3,ITSA4,KLBN4,LEVE3,PETR4,SHUL4,VAMO3,VULC3";
 
 
 // Horários de execução (hora do servidor MT5)
@@ -357,20 +355,19 @@ void CheckAndSendForSymbol(const string symbol, const string trigger)
 //+------------------------------------------------------------------+
 void SendForAllSymbols(const string trigger)
 {
-   //string list[];
-   string parts[];
-
-   SplitCsv(Ativos, parts);
-   for(int i = 0; i < ArraySize(parts); i++)
-      CheckAndSendForSymbol(parts[i], trigger);
-
-   SplitCsv(Ativos2, parts);
-   for(int i = 0; i < ArraySize(parts); i++)
-      CheckAndSendForSymbol(parts[i], trigger);
-
-   SplitCsv(Ativos3, parts);
-   for(int i = 0; i < ArraySize(parts); i++)
-      CheckAndSendForSymbol(parts[i], trigger);
+   string tickers[];
+   int count = GetTickers(tickers);
+   
+   if(count <= 0)
+   {
+      Print("[movingAverage] Nenhum ticker obtido da API/cache");
+      return;
+   }
+   
+   PrintFormat("[movingAverage] Processando %d tickers...", count);
+   
+   for(int i = 0; i < count; i++)
+      CheckAndSendForSymbol(tickers[i], trigger);
 }
 
 //+------------------------------------------------------------------+
