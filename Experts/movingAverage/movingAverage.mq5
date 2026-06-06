@@ -19,9 +19,9 @@ input ENUM_APPLIED_PRICE MA_Price = PRICE_CLOSE;    // Preço aplicado
 
 // Horários de execução (hora do servidor MT5)
 input int    Hour1 = 10;   // 1º disparo — hora
-input int    Min1  = 0;    // 1º disparo — minuto
+input int    Min1  = 28;    // 1º disparo — minuto
 input int    Hour2 = 14;   // 2º disparo — hora
-input int    Min2  = 0;    // 2º disparo — minuto
+input int    Min2  = 28;    // 2º disparo — minuto
 
 input bool   SendOnStart = true; // Enviar ao iniciar o EA
 
@@ -218,6 +218,7 @@ void CheckAndSend(string trigger)
    double ma_value      = ma_buffer[1];
    double ma_prev       = ma_buffer[2];
    double current_price = iClose(g_ticker, PERIOD_D1, 1);
+   double prev_price    = iClose(g_ticker, PERIOD_D1, 2);
    double ask_price     = SymbolInfoDouble(g_ticker, SYMBOL_ASK);
 
    if(ma_value <= 0 || current_price <= 0)
@@ -226,7 +227,13 @@ void CheckAndSend(string trigger)
       return;
    }
 
-   string signal       = (current_price > ma_value) ? "ABOVE" : "BELOW";
+   string signal = "";
+   if(current_price < ma_value && prev_price > ma_prev)
+      signal = "SELL";
+   else if(current_price > ma_value && prev_price < ma_prev)
+      signal = "BUY";
+   else
+      signal = "NEUTRAL";
    double distance_pct = ((current_price - ma_value) / ma_value) * 100.0;
 
    string dt_server = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS);
@@ -310,6 +317,7 @@ void CheckAndSendForSymbol(const string symbol, const string trigger)
    double ma_value      = ma_buffer[1];
    double ma_prev       = ma_buffer[2];
    double current_price = iClose(sym, PERIOD_D1, 1);
+   double prev_price    = iClose(sym, PERIOD_D1, 2);
    double ask_price     = SymbolInfoDouble(sym, SYMBOL_ASK);
 
    if(ma_value <= 0 || current_price <= 0)
@@ -320,7 +328,16 @@ void CheckAndSendForSymbol(const string symbol, const string trigger)
       return;
    }
 
-   string signal       = (current_price > ma_value) ? "ABOVE" : "BELOW";
+   string signal = "";
+   if(current_price < ma_value && prev_price > ma_prev)
+      signal = "SELL";
+   else if(current_price > ma_value && prev_price < ma_prev)
+      signal = "BUY";
+   else
+   {
+      signal = "NEUTRAL";
+   }
+
    double distance_pct = ((current_price - ma_value) / ma_value) * 100.0;
 
    string dt_server = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS);
