@@ -53,21 +53,27 @@ void ExecutarCargaInicial_Options(int log_handle, const string &tickers[])
             if(copiados > 0)
             {
                opcoes_com_dados++;
-               for(int d = 0; d < copiados; d++)
+               string tipo = ObterTipoOpcao_Options(simbolo, ativo_base);
+               
+               if(tipo == "CALL" || tipo == "PUT")
                {
-                  string tipo = ObterTipoOpcao_Options(simbolo, ativo_base);
-                  if(tipo == "CALL" || tipo == "PUT")
+                  for(int d = 0; d < copiados; d++)
                   {
+                     PrintFormat("[OptionsDataCollector] Enviando: %s | Data: %s | Close: %.4f", 
+                                 simbolo, 
+                                 TimeToString(rates[d].time, TIME_DATE), 
+                                 rates[d].close);
+                     
                      string json = MontarJSON_Options(simbolo, ativo_base, tipo, rates[d].close, rates[d].time, 0, 0, true);
                      EnviarParaN8N_Options(json, log_handle);
                      enviados++;
                      Sleep(50);
                   }
-                  else
-                  {
-                     if(log_handle != INVALID_HANDLE)
-                        FileWrite(log_handle, "Opção ignorada (tipo desconhecido): ", simbolo, " - Tipo: ", tipo);
-                  }
+               }
+               else
+               {
+                  if(log_handle != INVALID_HANDLE)
+                     FileWrite(log_handle, "Opção ignorada (tipo desconhecido): ", simbolo, " - Tipo: ", tipo);
                }
             }
          }
