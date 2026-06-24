@@ -1,0 +1,299 @@
+{
+  "name": "MT5.Supabase-Indicators.data_option.price_history",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "optionDataCollector",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e31d726b-3aab-4ee7-b18d-86913a7dda3d",
+      "name": "Webhook MT5",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b8d4f9c4-42ac-419d-9293-5fd97ae22cc1",
+      "notes": "Recebe POST do EA. Path deve casar com InpOptionsWebhookURL do EA: /webhook/optionDataCollector"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Normaliza e valida o payload recebido do EA MT5\n// Mapeia para o schema real do Supabase (tabelas options / price_history)\n// ============================================================\n\nconst item = $input.first().json.body;\n\n// Validação básica\nif (!item.simbolo || !item.tipo || item.preco === undefined) {\n  throw new Error(`Payload inválido: ${JSON.stringify(item)}`);\n}\n\nconst tipo = (item.tipo || '').toUpperCase();\nif (!['CALL', 'PUT'].includes(tipo)) {\n  throw new Error(`Tipo de opção inválido: ${item.tipo}`);\n}\n\n// timestamp MT5 \"2024.06.15 14:30:00\" -> \"2024-06-15 14:30:00\" (aceito pelo Postgres)\nconst tsRaw = item.timestamp || new Date().toISOString();\nconst tsISO = tsRaw.replace(/^(\\d{4})\\.(\\d{2})\\.(\\d{2})/, '$1-$2-$3');\n\n// vencimento MT5 \"2024.06.15\" -> \"2024-06-15\" (coluna date)\nlet expiration_date = null;\nif (item.vencimento) {\n  const candidato = item.vencimento.replace(/\\./g, '-');\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(candidato)) expiration_date = candidato;\n}\n\n// Extrai strike do nome do símbolo se não vier (ex: PETR4C350 -> 350)\nlet strike = parseFloat(item.strike) || 0;\nif (!strike) {\n  const match = item.simbolo.match(/[CP](\\d+)$/i);\n  if (match) strike = parseFloat(match[1]);\n}\n\nconst bid = parseFloat(item.bid) || 0;\nconst ask = parseFloat(item.ask) || 0;\n\n// Opção é considerada ativa se ainda não venceu (ou se não há data conhecida)\nlet is_active = true;\nif (expiration_date) {\n  const hoje = new Date().toISOString().slice(0, 10);\n  is_active = expiration_date >= hoje;\n}\n\nreturn [{\n  json: {\n    ticker:             item.simbolo.toUpperCase(),\n    ticker_main:        item.ativo_base.toUpperCase(),\n    option_type:        tipo,\n    strike_price:       strike,\n    expiration_date:    expiration_date,\n    is_active:          is_active,\n    price:              parseFloat(item.preco) || 0,\n    bid:                bid,\n    ask:                ask,\n    spread:             (bid > 0 && ask > 0) ? +(ask - bid).toFixed(4) : 0,\n    collected_at:       tsISO,\n    is_historical_load: item.carga_historica === true || item.carga_historica === 'true'\n  }\n}];\n"
+      },
+      "id": "5688085a-ec15-4278-8d8b-41a1a5e562c9",
+      "name": "Normalizar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "notes": "Valida e converte o payload do EA para o schema real do Supabase"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{$env.SUPABASE_URL}}/rest/v1/options?on_conflict=ticker",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{$env.SUPABASE_API_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"ticker\": {{ JSON.stringify($json.ticker) }},\n  \"ticker_main\": {{ JSON.stringify($json.ticker_main) }},\n  \"option_type\": {{ JSON.stringify($json.option_type) }},\n  \"strike_price\": {{ $json.strike_price }},\n  \"expiration_date\": {{ $json.expiration_date ? JSON.stringify($json.expiration_date) : 'null' }},\n  \"is_active\": {{ $json.is_active }}\n}",
+        "options": {}
+      },
+      "id": "c2e95ed8-cd43-4180-926e-ef45ea419663",
+      "name": "Upsert Opção (options)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Upsert direto na tabela 'options' usando ticker como chave (requer UNIQUE constraint em ticker)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mescla dados normalizados com o id retornado pelo upsert\nconst normalizado = $('Normalizar Payload').first().json;\nconst upsertResult = $input.first().json;\n\nif (!upsertResult || upsertResult.id === undefined) {\n  throw new Error(`Upsert não retornou id da opção: ${JSON.stringify(upsertResult)}`);\n}\n\nreturn [{\n  json: {\n    ...normalizado,\n    option_id: upsertResult.id\n  }\n}];\n"
+      },
+      "id": "06d79542-ba9d-4e3d-a275-ee944e21a37c",
+      "name": "Mesclar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "notes": "Combina dados normalizados com o id da opção (FK necessária em price_history)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{$env.SUPABASE_URL}}/rest/v1/price_history?on_conflict=option_id,collected_at",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{$env.SUPABASE_API_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=ignore-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"option_id\": {{ $json.option_id }},\n  \"ticker\": {{ JSON.stringify($json.ticker) }},\n  \"option_type\": {{ JSON.stringify($json.option_type) }},\n  \"price\": {{ $json.price }},\n  \"bid\": {{ $json.bid }},\n  \"ask\": {{ $json.ask }},\n  \"spread\": {{ $json.spread }},\n  \"collected_at\": {{ JSON.stringify($json.collected_at) }},\n  \"is_historical_load\": {{ $json.is_historical_load }}\n}",
+        "options": {}
+      },
+      "id": "1483af0a-4279-4133-93be-d96da83e3ca4",
+      "name": "Inserir Preço (price_history)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Insert direto em price_history. on_conflict=option_id,collected_at requer UNIQUE constraint nessas colunas (opcional, ver SQL no chat)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{$env.SUPABASE_URL}}/rest/v1/log_coletas",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{$env.SUPABASE_API_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"ativo_base\": {{ JSON.stringify($('Normalizar Payload').first().json.ticker_main) }},\n  \"total_registros\": 1,\n  \"total_erros\": 0,\n  \"carga_historica\": {{ $('Normalizar Payload').first().json.is_historical_load }},\n  \"origem\": \"EA_MT5_N8N\"\n}",
+        "options": {}
+      },
+      "id": "4bd80442-977b-409d-bfc7-58722cd4ee95",
+      "name": "Registrar Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Tabela log_coletas ainda não confirmada — onError=continueRegularOutput evita quebrar o fluxo se ela não existir"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\", \"ticker\": \"{{ $('Normalizar Payload').first().json.ticker }}\" }",
+        "options": {}
+      },
+      "id": "7fcfb159-cd93-4e18-9c19-1718097ee2b8",
+      "name": "Responder MT5 (OK)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        0
+      ],
+      "notes": "Responde 200 OK para o EA confirmar o recebimento"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": {{ JSON.stringify($json.message || $json.error || 'Erro desconhecido') }} }",
+        "options": {}
+      },
+      "id": "8079d7a6-aeb8-4aba-97ca-0cce0cad91a2",
+      "name": "Responder MT5 (Erro)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        660,
+        220
+      ],
+      "notes": "Recebe os outputs de erro do Upsert e do Insert"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook MT5": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Payload": {
+      "main": [
+        [
+          {
+            "node": "Upsert Opção (options)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Opção (options)": {
+      "main": [
+        [
+          {
+            "node": "Mesclar Dados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder MT5 (Erro)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesclar Dados": {
+      "main": [
+        [
+          {
+            "node": "Inserir Preço (price_history)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inserir Preço (price_history)": {
+      "main": [
+        [
+          {
+            "node": "Registrar Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder MT5 (Erro)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Log": {
+      "main": [
+        [
+          {
+            "node": "Responder MT5 (OK)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "337b464e-38e3-4afa-b3eb-e627a76760b8",
+  "meta": {
+    "instanceId": "85f9dc5ff28680c71671487b411f22dc718fbea5399232c979dd21e6aa84f9b3"
+  },
+  "id": "HBb2ZD5kWdpIGJCt",
+  "tags": []
+}

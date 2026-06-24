@@ -1,0 +1,269 @@
+{
+  "name": "MT5.Supabase-Indicators.data_mt5.m9indicator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ma9-monitor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6ec1a937-a9f7-4ef4-a2de-60d6481f623c",
+      "name": "Webhook MT5",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        60,
+        80
+      ],
+      "webhookId": "ma9-monitor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Recebe e valida payload do MT5 ──────────────\nconst body = $input.first().json.body ?? $input.first().json;\n\nconst ticker        = body.ticker        ?? '';\nconst signal        = body.signal        ?? '';\nconst currentPrice  = body.current_price ?? 0;\nconst askPrice      = body.ask_price     ?? 0;\nconst ma9Value      = body.ma_value     ?? 0;\nconst ma9Prev       = body.ma_prev      ?? 0;\nconst distancePct   = body.distance_pct  ?? 0;\nconst maPeriod      = body.ma_period     ?? 9;\nconst timeframe     = body.timeframe     ?? 'D1';\nconst serverTime    = body.server_time   ?? '';\nconst localTime     = body.local_time    ?? '';\n\nif (!ticker || !signal || !currentPrice || !ma9Value) {\n  throw new Error(`Payload inválido: ${JSON.stringify(body)}`);\n}\n\n// ── Monta objeto para o Supabase ─────────────────\nconst now = new Date().toISOString();\n\n// data_indicators — bloco principal de indicadores\nconst data_indicators = {\n  ma9: {\n    value:        ma9Value,\n    prev:         ma9Prev,\n    period:       maPeriod,\n    timeframe:    timeframe,\n    applied:      'close'\n  },\n  price: {\n    bid:          currentPrice,\n    ask:          askPrice,\n    vs_ma9:       signal,           // 'ABOVE' | 'BELOW'\n    distance_pct: distancePct\n  },\n  meta: {\n    server_time:  serverTime,\n    local_time:   localTime,\n    sent_at:      now\n  }\n};\n\n// M9 boolean — true se preço ACIMA da MA9\n//const m9 = (signal === 'BUY' ? 'UP' : 'DOWN');\n\nreturn [{\n  json: {\n    ticker,\n    signal,\n    m9: signal,\n    data_indicators,\n    update_at: now.split('T')[0],   // apenas a data (YYYY-MM-DD)\n    created_at: now\n  }\n}];\n"
+      },
+      "id": "cf00faaa-86a0-4569-826f-187e2d054192",
+      "name": "Transformar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/indicators",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ticker",
+              "value": "=eq.{{ $json.ticker }}"
+            },
+            {
+              "name": "select",
+              "value": "data_mt5"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_API_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "43f93f3f-66a5-4ce4-ba62-ae03f8ba93d1",
+      "name": "GET data_mt5 atual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge seguro: preserva todas as chaves existentes em data_mt5\n// e atualiza apenas as chaves deste indicador\nconst getResult = $input.first().json;\nconst row = Array.isArray(getResult) ? getResult[0] : getResult;\n\nconst currentDataMt5 = (row && row.data_mt5) ? row.data_mt5 : {};\n\nconst data_indicators = $('Transformar Dados').item.json.data_indicators;\nconst m9              = $('Transformar Dados').item.json.m9;\nconst ticker          = $('Transformar Dados').item.json.ticker;\nconst signal          = $('Transformar Dados').item.json.signal;\n\nconst mergedDataMt5 = {\n  ...currentDataMt5,\n  ...data_indicators,\n  m9_signal: m9\n};\n\nreturn [{\n  json: {\n    ticker,\n    signal,\n    m9,\n    data_indicators,\n    mergedDataMt5\n  }\n}];\n"
+      },
+      "id": "e4a019ef-4639-4b09-914b-69fff6c4e505",
+      "name": "Merge data_mt5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/indicators?ticker=eq.{{$json.ticker}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_API_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data_mt5",
+              "value": "={{ $json.mergedDataMt5 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9c60ea7a-7ef9-4c9d-9d0e-4669b90d34e8",
+      "name": "Supabase Upsert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        80
+      ],
+      "alwaysOutputData": true,
+      "notes": "Faz UPSERT na tabela 'indicators'. Configure a credencial 'Supabase API Key' com sua service_role key."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, ticker: $('Transformar Dados').first().json.ticker, signal: $('Transformar Dados').first().json.signal, m9: $('Transformar Dados').first().json.m9 }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "7b507f23-1696-4d3d-982a-9aed63714b51",
+      "name": "Resposta ao MT5",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1260,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: $json.message }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "9da7047f-e6d6-488c-8bdb-0cbbf614b762",
+      "name": "Resposta de Erro",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "82fc9d9d-bf79-4478-9e74-c4a5816d8b06",
+      "name": "Capturar Erro",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        540,
+        240
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook MT5": {
+      "main": [
+        [
+          {
+            "node": "Transformar Dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transformar Dados": {
+      "main": [
+        [
+          {
+            "node": "GET data_mt5 atual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET data_mt5 atual": {
+      "main": [
+        [
+          {
+            "node": "Merge data_mt5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge data_mt5": {
+      "main": [
+        [
+          {
+            "node": "Supabase Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Upsert": {
+      "main": [
+        [
+          {
+            "node": "Resposta ao MT5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Capturar Erro": {
+      "main": [
+        [
+          {
+            "node": "Resposta de Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3cdb5e5f-abf8-4ae6-b6d6-ccf918a092b9",
+  "meta": {
+    "instanceId": "85f9dc5ff28680c71671487b411f22dc718fbea5399232c979dd21e6aa84f9b3"
+  },
+  "id": "e1fuByeqSCcLUkSy",
+  "tags": []
+}

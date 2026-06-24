@@ -1,0 +1,203 @@
+{
+  "name": "MT5.Supabase-GetTickers",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "get-tickers",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "45b2d98c-7e5a-4f08-a1a2-e03d1978f81c",
+      "name": "Webhook GET Tickers",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "webhookId": "get-tickers"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Lê cache da Static Data do workflow ──────────────\nconst cached = $getWorkflowStaticData('global');\n\nconst now        = Date.now();\nconst TTL_MS     = 24 * 60 * 60 * 1000; // 24 horas em ms\nconst cacheValid = cached.tickers_data &&\n                   cached.tickers_ts   &&\n                   (now - cached.tickers_ts) < TTL_MS;\n\nif(cacheValid) {\n  const age_min = Math.floor((now - cached.tickers_ts) / 60000);\n  console.log(`Cache HIT — ${cached.tickers_data.count} tickers — idade: ${age_min}min`);\n  return [{ json: { ...cached.tickers_data, cache_hit: true, cache_age_min: age_min } }];\n}\n\nconsole.log('Cache MISS — buscando no Supabase...');\nreturn [{ json: { cache_hit: false } }];\n"
+      },
+      "id": "d7204210-10c6-4d8f-8f3f-c0bdc2d660c9",
+      "name": "Verificar Cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cache-hit-condition",
+              "leftValue": "={{ $json.cache_hit }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0913618c-d784-4236-8406-f41f9d4dda63",
+      "name": "Cache válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/tickers?select=ticker&order=ticker.asc",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_API_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c6096b3d-13b7-444e-8193-8d21428dae52",
+      "name": "Supabase GET Tickers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Formata resultado e salva no cache ───────────────\nconst rows    = $input.all().map(i => i.json);\nconst tickers = rows.map(r => r.ticker).filter(Boolean);\nconst payload = { tickers, count: tickers.length };\n\n// Persiste no Static Data (sobrevive entre execuções)\nconst cached         = $getWorkflowStaticData('global');\ncached.tickers_data  = payload;\ncached.tickers_ts    = Date.now();\n\nconsole.log(`Cache WRITE — ${tickers.length} tickers salvos`);\n\nreturn [{ json: { ...payload, cache_hit: false, cache_age_min: 0 } }];\n"
+      },
+      "id": "32242e96-ba7f-4de2-b935-768d3e935a54",
+      "name": "Salvar Cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, tickers: $json.tickers, count: $json.count, cache_hit: $json.cache_hit, cache_age_min: $json.cache_age_min }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "80789b25-ae78-4048-93d5-0dd0c204ec1a",
+      "name": "Resposta ao MT5",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1500,
+        300
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook GET Tickers": {
+      "main": [
+        [
+          {
+            "node": "Verificar Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Cache": {
+      "main": [
+        [
+          {
+            "node": "Cache válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache válido?": {
+      "main": [
+        [
+          {
+            "node": "Resposta ao MT5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase GET Tickers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase GET Tickers": {
+      "main": [
+        [
+          {
+            "node": "Salvar Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar Cache": {
+      "main": [
+        [
+          {
+            "node": "Resposta ao MT5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "aa8a1593-3b35-4dc3-84f9-650a3f137934",
+  "meta": {
+    "instanceId": "85f9dc5ff28680c71671487b411f22dc718fbea5399232c979dd21e6aa84f9b3"
+  },
+  "id": "UDKrPtCNEWmPITD1",
+  "tags": []
+}

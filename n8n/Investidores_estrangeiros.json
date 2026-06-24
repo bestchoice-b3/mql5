@@ -1,0 +1,186 @@
+{
+  "name": "Investidores estrangeiros",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "8633bd94-fb1d-4b19-a274-e725ec240aa5",
+      "name": "Agendamento (dias úteis 8h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://sistemaswebb3-listados.b3.com.br/marketDataProxy/MarketDataCall/GetDownloadMarketData/RELATORIO_DADOS_DE_MERCADO.csv",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            },
+            {
+              "name": "Referer",
+              "value": "https://www.b3.com.br/"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 5
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "cf1a27d3-243c-481c-abcc-a0c346793236",
+      "name": "Baixar CSV da B3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = items[0].json.data;\n\nif (!texto || !texto.trim()) {\n  throw new Error('Arquivo da B3 veio vazio.');\n}\nfunction normalizarPeriodo(periodo) {\n  const meses = {\n    jan: '01',\n    fev: '02',\n    mar: '03',\n    abr: '04',\n    mai: '05',\n    jun: '06',\n    jul: '07',\n    ago: '08',\n    set: '09',\n    out: '10',\n    nov: '11',\n    dez: '12'\n  };\n\n  const match = periodo.match(/^([A-Za-z]+)\\/.*\\/(\\d{4})$/);\n\n  if (!match) return periodo;\n\n  const mes = meses[match[1].toLowerCase()];\n  const ano = match[2];\n\n  return `${ano}-${mes}`;\n}\nconst linhas = texto\n  .split(/\\r?\\n/)\n  .map(l => l.trim())\n  .filter(l => l.length > 0);\n\n// Localiza a seção correta\nconst inicioSecao = linhas.findIndex(l =>\n  l.toLowerCase().includes('movimenta') &&\n  l.toLowerCase().includes('estrangeir')\n);\n\nif (inicioSecao === -1) {\n  throw new Error('Seção de fluxo estrangeiro não encontrada.');\n}\n\n// Procura o cabeçalho da tabela\nlet cabecalhoIdx = -1;\n\nfor (let i = inicioSecao; i < Math.min(inicioSecao + 15, linhas.length); i++) {\n  const l = linhas[i].toLowerCase();\n\n  if (\n    l.includes('compras') &&\n    l.includes('vendas') &&\n    l.includes('saldo')\n  ) {\n    cabecalhoIdx = i;\n    break;\n  }\n}\n\nif (cabecalhoIdx === -1) {\n  throw new Error('Cabeçalho da tabela não encontrado.');\n}\n\nconst parseLinha = (linha) => {\n  return linha\n    .split(';')\n    .map(v => v.replace(/\"/g, '').trim());\n};\n\nconst cabecalho = parseLinha(linhas[cabecalhoIdx]);\n\nconst findCol = (...termos) =>\n  cabecalho.findIndex(c =>\n    termos.some(t =>\n      c.toLowerCase().includes(t.toLowerCase())\n    )\n  );\n\nconst idxPeriodo = 0;\nconst idxCompras = findCol('compras', 'buyers');\nconst idxVendas = findCol('vendas', 'sellers');\nconst idxIPO = findCol('ipo', 'follow on');\nconst idxSaldo = findCol('saldo', 'balance');\n\nif (\n  idxCompras === -1 ||\n  idxVendas === -1 ||\n  idxSaldo === -1\n) {\n  throw new Error(\n    'Não foi possível localizar as colunas principais.'\n  );\n}\n\nfunction toNumber(valor) {\n  if (!valor) return null;\n\n  const numero = valor\n    .replace(/\\./g, '')\n    .replace(',', '.')\n    .replace(/[^\\d.-]/g, '');\n\n  return numero === '' ? null : Number(numero);\n}\n\nconst regexMes =\n  /^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)/i;\n\nconst regexAno =\n  /^\\d{4}/;\n\nconst registros = [];\n\nfor (let i = cabecalhoIdx + 1; i < linhas.length; i++) {\n  const linha = linhas[i];\n\n  // Para quando chegar na próxima tabela histórica\n  if (\n    linha.toLowerCase().startsWith('ano / year')\n  ) {\n    break;\n  }\n\n  const cols = parseLinha(linha);\n\n  if (cols.length < 2) {\n    continue;\n  }\n\n  const periodo = cols[idxPeriodo]?.trim();\n\n  if (!periodo) {\n    continue;\n  }\n\n  // Aceita meses e linha acumulada do ano\n  const ehMes = regexMes.test(periodo);\n  const ehAnoAcumulado = periodo.includes('(*)');\n\n  if (!ehMes && !ehAnoAcumulado) {\n    continue;\n  }\n\n  registros.push({\n    periodo: normalizarPeriodo(periodo),\n    compras: toNumber(cols[idxCompras]),\n    vendas: toNumber(cols[idxVendas]),\n    ipo: idxIPO >= 0 ? toNumber(cols[idxIPO]) : 0,\n    saldo: toNumber(cols[idxSaldo]),\n  });\n}\n\nif (!registros.length) {\n  throw new Error(\n    'Nenhum registro de fluxo estrangeiro encontrado.'\n  );\n}\n\n// Calcula acumulado progressivo\nlet acumulado = 0;\n\nconst resultado = registros.map(r => {\n  if (!r.periodo.includes('(*)')) {\n    acumulado += r.saldo || 0;\n  }\n\n  return {\n    json: {\n      ...r,\n      saldo_acumulado: Number(acumulado.toFixed(2)),\n      atualizado_em: new Date().toISOString()\n    }\n  };\n});\n\nconsole.log(\n  `Fluxo estrangeiro processado: ${resultado.length} registros`\n);\n\nreturn resultado;"
+      },
+      "id": "6365a440-7d10-4ab0-92ec-d47cbef5cd82",
+      "name": "Processar CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/b3_fluxo_estrangeiro?on_conflict=periodo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_API_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "c488664c-5abf-4d40-b70f-ebabfce60a19",
+      "name": "Salvar no Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const total = items.length;\nconst periodos = items.map(i => i.json.periodo).join(', ');\nconsole.log('Enviados: ' + total + ' registros');\nreturn [{ json: { sucesso: true, total_enviados: total, periodos } }];"
+      },
+      "id": "8cac72c0-1ea4-4d27-8a0a-79deffac3638",
+      "name": "Log Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Agendamento (dias úteis 8h)": {
+      "main": [
+        [
+          {
+            "node": "Baixar CSV da B3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar CSV da B3": {
+      "main": [
+        [
+          {
+            "node": "Processar CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar CSV": {
+      "main": [
+        [
+          {
+            "node": "Salvar no Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar no Supabase": {
+      "main": [
+        [
+          {
+            "node": "Log Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d40cc073-74eb-4bdf-b8e4-5838813a3ffc",
+  "meta": {
+    "instanceId": "85f9dc5ff28680c71671487b411f22dc718fbea5399232c979dd21e6aa84f9b3"
+  },
+  "id": "MuT376oxZxZBfpEj",
+  "tags": []
+}

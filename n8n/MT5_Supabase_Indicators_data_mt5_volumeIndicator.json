@@ -1,0 +1,236 @@
+{
+  "name": "MT5.Supabase-Indicators.data_mt5.volumeIndicator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "volume-ma-monitor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e1914f22-a5b5-4d0f-b6ce-6453ce563304",
+      "name": "Webhook volumeMoveAverage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -580,
+        260
+      ],
+      "webhookId": "volume-ma-monitor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza o payload vindo do MT5\nconst body = $input.first().json.body\n\nconst ticker = (body.symbol || '').trim();\nif (!ticker) throw new Error('Campo symbol ausente no payload');\n\nreturn [{\n  json: {\n    ticker,\n    payload : {signal: body.signal, volume_real: body.volume_real, volume_ma: body.volume_ma, volume_ratio: body.volume_ratio }\n  }\n}];\n"
+      },
+      "id": "d0fbcddc-6579-4fb9-a433-f28fa8b33ec5",
+      "name": "Extrai ticker e payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/indicators",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ticker",
+              "value": "=eq.{{ $json.ticker }}"
+            },
+            {
+              "name": "select",
+              "value": "id,ticker,data_mt5"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "91e545c5-91fe-4731-aee9-fff6cb0e5420",
+      "name": "GET registro atual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -100,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Faz merge de data_mt5 preservando as outras chaves do jsonb\nconst getResult = $input.first().json;\n\n// O GET retorna array; pega o primeiro registro\nconst row = Array.isArray(getResult) ? getResult[0] : getResult;\n\nif (!row) throw new Error('Ticker não encontrado na tabela indicators: ' + $('Extrai ticker e payload').item.json.ticker);\n\n// data_mt5 atual (pode ser null)\nconst currentDataMt5 = row.data_mt5 || {};\n\n// Payload do EA (vem do node anterior na chain)\nconst payload = $('Extrai ticker e payload').item.json.payload;\n\n// Merge: mantém tudo que já existe em data_mt5 e substitui/adiciona só volumeMoveAverage\nconst newDataMt5 = {\n  ...currentDataMt5,\n  volumeMoveAverage: payload\n};\n\nreturn [{\n  json: {\n    ticker: $('Extrai ticker e payload').item.json.ticker,\n    data_mt5: newDataMt5\n  }\n}];\n"
+      },
+      "id": "0bd0608f-c4a3-40da-aa0b-e9ceca3e93e5",
+      "name": "Merge data_mt5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/indicators",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ticker",
+              "value": "=eq.{{ $json.ticker }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data_mt5",
+              "value": "={{ $json.data_mt5 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0f3e84dc-0476-481a-96af-ffed7d1ac519",
+      "name": "PATCH Supabase – data_mt5",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        400,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\":true,\"ticker\":\"{{ $('Extrai ticker e payload').item.json.ticker }}\",\"indicator\":\"volumeMoveAverage\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "72cc63b9-5ee5-47e6-a60c-1aa9b918301c",
+      "name": "Resposta 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        640,
+        260
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook volumeMoveAverage": {
+      "main": [
+        [
+          {
+            "node": "Extrai ticker e payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrai ticker e payload": {
+      "main": [
+        [
+          {
+            "node": "GET registro atual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET registro atual": {
+      "main": [
+        [
+          {
+            "node": "Merge data_mt5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge data_mt5": {
+      "main": [
+        [
+          {
+            "node": "PATCH Supabase – data_mt5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PATCH Supabase – data_mt5": {
+      "main": [
+        [
+          {
+            "node": "Resposta 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d13f2874-14bb-4881-8d4d-0bac038add2b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "85f9dc5ff28680c71671487b411f22dc718fbea5399232c979dd21e6aa84f9b3"
+  },
+  "id": "o9c8pAc2vA6z6se0",
+  "tags": []
+}
