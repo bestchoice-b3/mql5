@@ -24,12 +24,12 @@ input int InpDailyMinute2 = 0;
 input bool InpRunOnInit = false;
 
 input group "=== Ativar/Desativar Módulos ==="
-input bool InpEnableAdx = false;
-input bool InpEnableMovingAverage = false;
-input bool InpEnableObvTurbo = false;
-input bool InpEnablePicosVales = false;
-input bool InpEnableTakeScreen = false;
-input bool InpEnableVolumeMA = false;
+input bool InpEnableAdx = true;
+input bool InpEnableMovingAverage = true;
+input bool InpEnableObvTurbo = true;
+input bool InpEnablePicosVales = true;
+input bool InpEnableTakeScreen = true;
+input bool InpEnableVolumeMA = true;
 input bool InpEnableOptionsData = true;
 
 enum MODULE_ID

@@ -9,12 +9,126 @@
 
 input string   InpOptionsWebhookURL = "http://127.0.0.1:5678/webhook/optionDataCollector";
 input bool     InpOptionsCargaInicial = false;
-input int      InpOptionsDiasCarga  = 60;
+input int      InpOptionsDiasCarga  = 21;
+input string   InpOptionsTickersIgnorados = "ABEV3,B3SA3";
 
 string OptionsLogFileName = "OptionsDataCollectorLog.txt";
 
+string OptionsSentCacheFileName = "OptionsDataCollectorSentCache.txt";
+string g_options_sent_keys[];
+bool   g_options_cache_loaded = false;
+
+string NormalizeTicker_Options(string s)
+{
+   StringTrimLeft(s);
+   StringTrimRight(s);
+   return StringToUpper(s);
+}
+
+bool IsTickerIgnored_Options(const string ticker)
+{
+   string t = NormalizeTicker_Options(ticker);
+   if(t == "")
+      return false;
+
+   string list = InpOptionsTickersIgnorados;
+   list = StringReplace(list, ";", ",");
+
+   string parts[];
+   int n = StringSplit(list, ',', parts);
+   for(int i = 0; i < n; i++)
+   {
+      string p = NormalizeTicker_Options(parts[i]);
+      if(p != "" && p == t)
+         return true;
+   }
+
+   return false;
+}
+
+string BuildSentKey_Options(const string simbolo, const datetime timestamp, const bool carga_historica)
+{
+   return simbolo + "|" + IntegerToString((int)timestamp) + "|" + (carga_historica ? "H" : "R");
+}
+
+void LoadSentCache_Options(int log_handle)
+{
+   if(g_options_cache_loaded)
+      return;
+
+   g_options_cache_loaded = true;
+   ArrayResize(g_options_sent_keys, 0);
+
+   int h = FileOpen(OptionsSentCacheFileName, FILE_READ | FILE_TXT | FILE_ANSI);
+   if(h == INVALID_HANDLE)
+      return;
+
+   while(!FileIsEnding(h))
+   {
+      string key = FileReadString(h);
+      if(key == "")
+         continue;
+
+      int n = ArraySize(g_options_sent_keys);
+      ArrayResize(g_options_sent_keys, n + 1);
+      g_options_sent_keys[n] = key;
+   }
+
+   FileClose(h);
+
+   if(ArraySize(g_options_sent_keys) > 1)
+      ArraySort(g_options_sent_keys);
+
+   if(log_handle != INVALID_HANDLE)
+      FileWrite(log_handle, "Cache de enviados carregado. Itens: ", IntegerToString(ArraySize(g_options_sent_keys)));
+}
+
+bool HasSentKey_Options(const string key)
+{
+   int total = ArraySize(g_options_sent_keys);
+   if(total <= 0)
+      return false;
+
+   for(int i = 0; i < total; i++)
+   {
+      if(g_options_sent_keys[i] == key)
+         return true;
+   }
+
+   return false;
+}
+
+void AddSentKey_Options(const string key, int log_handle)
+{
+   if(HasSentKey_Options(key))
+      return;
+
+   int n = ArraySize(g_options_sent_keys);
+   ArrayResize(g_options_sent_keys, n + 1);
+   g_options_sent_keys[n] = key;
+   if(ArraySize(g_options_sent_keys) > 1)
+      ArraySort(g_options_sent_keys);
+
+   int h = FileOpen(OptionsSentCacheFileName, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(h == INVALID_HANDLE)
+      h = FileOpen(OptionsSentCacheFileName, FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(h != INVALID_HANDLE)
+   {
+      FileSeek(h, 0, SEEK_END);
+      FileWrite(h, key);
+      FileClose(h);
+   }
+   else
+   {
+      if(log_handle != INVALID_HANDLE)
+         FileWrite(log_handle, "Falha ao abrir cache de enviados para escrita: ", OptionsSentCacheFileName);
+   }
+}
+
 void ExecutarCargaInicial_Options(int log_handle, const string &tickers[])
 {
+   LoadSentCache_Options(log_handle);
+
    datetime data_inicio = TimeCurrent() - (InpOptionsDiasCarga * 86400);
    datetime data_fim    = TimeCurrent();
 
@@ -31,6 +145,13 @@ void ExecutarCargaInicial_Options(int log_handle, const string &tickers[])
    for(int t = 0; t < ticker_count; t++)
    {
       string ativo_base = tickers[t];
+      if(IsTickerIgnored_Options(ativo_base))
+      {
+         if(log_handle != INVALID_HANDLE)
+            FileWrite(log_handle, "Ticker ignorado (config): ", ativo_base);
+         continue;
+      }
+
       string base_4_letras = StringSubstr(ativo_base, 0, 4);
       int total_simbolos = SymbolsTotal(false);
       int opcoes_ticker = 0;
@@ -59,14 +180,21 @@ void ExecutarCargaInicial_Options(int log_handle, const string &tickers[])
                {
                   for(int d = 0; d < copiados; d++)
                   {
+                     string sent_key = BuildSentKey_Options(simbolo, rates[d].time, true);
+                     if(HasSentKey_Options(sent_key))
+                        continue;
+
                      PrintFormat("[OptionsDataCollector] Enviando: %s | Data: %s | Close: %.4f", 
                                  simbolo, 
                                  TimeToString(rates[d].time, TIME_DATE), 
                                  rates[d].close);
                      
                      string json = MontarJSON_Options(simbolo, ativo_base, tipo, rates[d].close, rates[d].time, 0, 0, true);
-                     EnviarParaN8N_Options(json, log_handle);
-                     enviados++;
+                     if(EnviarParaN8N_Options(json, log_handle))
+                     {
+                        AddSentKey_Options(sent_key, log_handle);
+                        enviados++;
+                     }
                      Sleep(50);
                   }
                }
@@ -92,6 +220,8 @@ void ExecutarCargaInicial_Options(int log_handle, const string &tickers[])
 
 void ColetarDadosOpcoes_Options(datetime timestamp, int log_handle, const string &tickers[])
 {
+   LoadSentCache_Options(log_handle);
+
    int enviados = 0;
    int ticker_count = ArraySize(tickers);
 
@@ -102,6 +232,13 @@ void ColetarDadosOpcoes_Options(datetime timestamp, int log_handle, const string
    for(int t = 0; t < ticker_count; t++)
    {
       string ativo_base = tickers[t];
+      if(IsTickerIgnored_Options(ativo_base))
+      {
+         if(log_handle != INVALID_HANDLE)
+            FileWrite(log_handle, "Ticker ignorado (config): ", ativo_base);
+         continue;
+      }
+
       string base_4_letras = StringSubstr(ativo_base, 0, 4);
       int total_simbolos = SymbolsTotal(false);
       int opcoes_encontradas_ticker = 0;
@@ -130,9 +267,16 @@ void ColetarDadosOpcoes_Options(datetime timestamp, int log_handle, const string
                string tipo = ObterTipoOpcao_Options(simbolo, ativo_base);
                if(tipo == "CALL" || tipo == "PUT")
                {
+                  string sent_key = BuildSentKey_Options(simbolo, timestamp, false);
+                  if(HasSentKey_Options(sent_key))
+                     continue;
+
                   string json = MontarJSON_Options(simbolo, ativo_base, tipo, preco_coleta, timestamp, preco_bid, preco_ask, false);
-                  EnviarParaN8N_Options(json, log_handle);
-                  enviados++;
+                  if(EnviarParaN8N_Options(json, log_handle))
+                  {
+                     AddSentKey_Options(sent_key, log_handle);
+                     enviados++;
+                  }
                   Sleep(50);
                }
                else
@@ -241,7 +385,7 @@ string ExtrairVencimento_Options(string simbolo)
    return "";
 }
 
-void EnviarParaN8N_Options(string json_payload, int log_handle)
+bool EnviarParaN8N_Options(string json_payload, int log_handle)
 {
    char   post_data[];
    char   result[];
@@ -275,17 +419,23 @@ void EnviarParaN8N_Options(string json_payload, int log_handle)
       
       if(log_handle != INVALID_HANDLE)
          FileWrite(log_handle, "Erro ao enviar para n8n. Código: ", IntegerToString(erro));
+
+      return false;
    }
    else if(res != 200)
    {
       PrintFormat("[OptionsDataCollector] HTTP %d - URL: %s", res, InpOptionsWebhookURL);
       if(log_handle != INVALID_HANDLE)
          FileWrite(log_handle, "Webhook retornou HTTP ", IntegerToString(res));
+
+      return false;
    }
    else
    {
       PrintFormat("[OptionsDataCollector] ✓ Enviado com sucesso (HTTP 200)");
    }
+
+   return true;
 }
 
 void RunOptionsDataCollector()
@@ -294,6 +444,11 @@ void RunOptionsDataCollector()
    
    int log_handle = INVALID_HANDLE;
    OpenLogFile(OptionsLogFileName, log_handle);
+
+   LoadSentCache_Options(log_handle);
+
+   if(log_handle != INVALID_HANDLE)
+      FileWrite(log_handle, "Tickers ignorados (config): ", InpOptionsTickersIgnorados);
 
    if(log_handle != INVALID_HANDLE)
       FileWrite(log_handle, "=== Início da rotina Options Data Collector: ", TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS), " ===");
