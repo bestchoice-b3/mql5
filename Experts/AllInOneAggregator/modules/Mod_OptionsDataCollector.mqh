@@ -22,7 +22,8 @@ string NormalizeTicker_Options(string s)
 {
    StringTrimLeft(s);
    StringTrimRight(s);
-   return StringToUpper(s);
+   StringToUpper(s);
+   return s;
 }
 
 bool IsTickerIgnored_Options(const string ticker)
@@ -32,7 +33,7 @@ bool IsTickerIgnored_Options(const string ticker)
       return false;
 
    string list = InpOptionsTickersIgnorados;
-   list = StringReplace(list, ";", ",");
+   StringReplace(list, ";", ",");
 
    string parts[];
    int n = StringSplit(list, ',', parts);
@@ -59,9 +60,14 @@ void LoadSentCache_Options(int log_handle)
    g_options_cache_loaded = true;
    ArrayResize(g_options_sent_keys, 0);
 
-   int h = FileOpen(OptionsSentCacheFileName, FILE_READ | FILE_TXT | FILE_ANSI);
+   int h = FileOpen(OptionsSentCacheFileName, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(h == INVALID_HANDLE)
+   {
+      int hc = FileOpen(OptionsSentCacheFileName, FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
+      if(hc != INVALID_HANDLE)
+         FileClose(hc);
       return;
+   }
 
    while(!FileIsEnding(h))
    {
@@ -109,9 +115,9 @@ void AddSentKey_Options(const string key, int log_handle)
    if(ArraySize(g_options_sent_keys) > 1)
       ArraySort(g_options_sent_keys);
 
-   int h = FileOpen(OptionsSentCacheFileName, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
+   int h = FileOpen(OptionsSentCacheFileName, FILE_READ | FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(h == INVALID_HANDLE)
-      h = FileOpen(OptionsSentCacheFileName, FILE_WRITE | FILE_TXT | FILE_ANSI);
+      h = FileOpen(OptionsSentCacheFileName, FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(h != INVALID_HANDLE)
    {
       FileSeek(h, 0, SEEK_END);
@@ -156,17 +162,24 @@ void ExecutarCargaInicial_Options(int log_handle, const string &tickers[])
       int total_simbolos = SymbolsTotal(false);
       int opcoes_ticker = 0;
       int opcoes_com_dados = 0;
+      int simbolos_com_base = 0;
 
-      PrintFormat("[OptionsDataCollector] [%d/%d] Processando %s...", t+1, ticker_count, ativo_base);
+      PrintFormat("[OptionsDataCollector] [%d/%d] Processando %s (base: %s)...", t+1, ticker_count, ativo_base, base_4_letras);
+      if(log_handle != INVALID_HANDLE)
+         FileWrite(log_handle, "Processando ticker: ", ativo_base, " - Base 4 letras: ", base_4_letras, " - Total símbolos no broker: ", IntegerToString(total_simbolos));
 
       for(int i = 0; i < total_simbolos; i++)
       {
          string simbolo = SymbolName(i, false);
 
-         if(StringFind(simbolo, base_4_letras) == 0 && IsOpcao_Options(simbolo, ativo_base))
+         if(StringFind(simbolo, base_4_letras) == 0)
          {
-            opcoes_encontradas++;
-            opcoes_ticker++;
+            simbolos_com_base++;
+            
+            if(IsOpcao_Options(simbolo, ativo_base))
+            {
+               opcoes_encontradas++;
+               opcoes_ticker++;
             
             MqlRates rates[];
             int copiados = CopyRates(simbolo, PERIOD_D1, data_inicio, data_fim, rates);
@@ -204,13 +217,27 @@ void ExecutarCargaInicial_Options(int log_handle, const string &tickers[])
                      FileWrite(log_handle, "Opção ignorada (tipo desconhecido): ", simbolo, " - Tipo: ", tipo);
                }
             }
+            else
+            {
+               if(log_handle != INVALID_HANDLE)
+                  FileWrite(log_handle, "Opção sem dados históricos: ", simbolo);
+            }
+            }
          }
       }
       
       if(opcoes_ticker > 0)
-         PrintFormat("[OptionsDataCollector] %s: %d opções encontradas, %d com dados históricos", ativo_base, opcoes_ticker, opcoes_com_dados);
+      {
+         PrintFormat("[OptionsDataCollector] %s: símbolos com base=%d, opções válidas=%d, com dados=%d", ativo_base, simbolos_com_base, opcoes_ticker, opcoes_com_dados);
+         if(log_handle != INVALID_HANDLE)
+            FileWrite(log_handle, "Ticker ", ativo_base, ": símbolos_com_base=", IntegerToString(simbolos_com_base), ", opções_válidas=", IntegerToString(opcoes_ticker), ", com_dados=", IntegerToString(opcoes_com_dados));
+      }
       else
-         PrintFormat("[OptionsDataCollector] %s: nenhuma opção encontrada", ativo_base);
+      {
+         PrintFormat("[OptionsDataCollector] %s: símbolos com base=%d, mas NENHUMA opção válida encontrada", ativo_base, simbolos_com_base);
+         if(log_handle != INVALID_HANDLE)
+            FileWrite(log_handle, "Ticker ", ativo_base, ": símbolos_com_base=", IntegerToString(simbolos_com_base), ", mas NENHUMA opção válida");
+      }
    }
 
    PrintFormat("[OptionsDataCollector] Carga inicial concluída. Opções: %d, Registros enviados: %d", opcoes_encontradas, enviados);
@@ -440,10 +467,16 @@ bool EnviarParaN8N_Options(string json_payload, int log_handle)
 
 void RunOptionsDataCollector()
 {
-   PrintFormat("[OptionsDataCollector] === INÍCIO DA ROTINA ===");
+   PrintFormat("[OptionsDataCollector] === INÍCIO DA ROTINA v1 ===");
    
    int log_handle = INVALID_HANDLE;
    OpenLogFile(OptionsLogFileName, log_handle);
+
+   if(log_handle == INVALID_HANDLE)
+      PrintFormat("[OptionsDataCollector] ERRO: não foi possível abrir arquivo de log (%s). Erro: %d", OptionsLogFileName, GetLastError());
+   
+   PrintFormat("[OptionsDataCollector] DATA_PATH: %s", TerminalInfoString(TERMINAL_DATA_PATH));
+   PrintFormat("[OptionsDataCollector] COMMONDATA_PATH: %s", TerminalInfoString(TERMINAL_COMMONDATA_PATH));
 
    LoadSentCache_Options(log_handle);
 
