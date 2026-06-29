@@ -69,11 +69,15 @@ bool ComputeVolumeSignal(const string symbol, string &out_json)
    double ratio = (vol_ma > 0.0) ? (vol / vol_ma) : 0.0;
 
    string dt_server = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS);
+   string dt_bar = TimeToString(rates[InpVolume_Shift].time, TIME_DATE|TIME_MINUTES|TIME_SECONDS);
+   int    dt_bar_unix = (int)rates[InpVolume_Shift].time;
 
-   out_json = StringFormat("{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timestamp_server\":\"%s\",\"volume_shift\":%d,\"volume_real\":%.0f,\"volume_ma_period\":%d,\"volume_ma\":%.2f,\"volume_ratio\":%.4f,\"signal\":\"%s\"}",
+   out_json = StringFormat("{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"timestamp_server\":\"%s\",\"timestamp_bar\":\"%s\",\"timestamp_bar_unix\":%d,\"volume_shift\":%d,\"volume_real\":%.0f,\"volume_ma_period\":%d,\"volume_ma\":%.2f,\"volume_ratio\":%.4f,\"signal\":\"%s\"}",
                           symbol,
                           EnumToString(InpVolumeTimeframe),
                           dt_server,
+                          dt_bar,
+                          dt_bar_unix,
                           InpVolume_Shift,
                           vol,
                           InpVolumeMA_Period,
