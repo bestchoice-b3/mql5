@@ -12,7 +12,9 @@ input ENUM_TIMEFRAMES InpVolumeTimeframe = PERIOD_D1;
 input int    InpVolumeMA_Period = 90;
 input int    InpVolume_Shift = 0;
 
-void SendToN8N_Volume(const string json_body)
+ string VolumeLogFileName = "VolumeMoveAverageLog.txt";
+
+bool SendToN8N_Volume(const string json_body, int log_handle)
 {
    char post_data[];
    char result[];
@@ -35,14 +37,32 @@ void SendToN8N_Volume(const string json_body)
       Print("[volumeMoveAverage] WebRequest falhou. Erro: ", err);
       Print("[volumeMoveAverage] IMPORTANTE: Habilite a URL em Tools -> Options -> Expert Advisors -> Allow WebRequest");
       Print("[volumeMoveAverage] Adicione: ", InpVolumeN8N_URL);
-      return;
+
+      if(log_handle != INVALID_HANDLE)
+      {
+         FileWrite(log_handle, "ERRO WebRequest. Código: ", IntegerToString(err));
+         FileWrite(log_handle, "IMPORTANTE: Habilite Allow WebRequest e adicione a URL: ", InpVolumeN8N_URL);
+      }
+      return false;
    }
 
    if(res != 200)
-      Print("[volumeMoveAverage] Webhook retornou HTTP ", res, " | resposta: ", CharArrayToString(result));
+   {
+      string resp = CharArrayToString(result);
+      Print("[volumeMoveAverage] Webhook retornou HTTP ", res, " | resposta: ", resp);
+      if(log_handle != INVALID_HANDLE)
+         FileWrite(log_handle, "HTTP != 200. HTTP=", IntegerToString(res), " resposta=", resp);
+      return false;
+   }
+   else
+   {
+      if(log_handle != INVALID_HANDLE)
+         FileWrite(log_handle, "OK Webhook HTTP 200");
+      return true;
+   }
 }
 
-bool ComputeVolumeSignal(const string symbol, string &out_json)
+bool ComputeVolumeSignal(const string symbol, string &out_json, int log_handle)
 {
    out_json = "";
 
@@ -54,6 +74,8 @@ bool ComputeVolumeSignal(const string symbol, string &out_json)
    if(copied <= InpVolumeMA_Period + InpVolume_Shift)
    {
       PrintFormat("[volumeMoveAverage] CopyRates falhou/insuficiente para %s (copied=%d) err=%d", symbol, copied, GetLastError());
+      if(log_handle != INVALID_HANDLE)
+         FileWrite(log_handle, "FALHA CopyRates/insuficiente. Symbol=", symbol, " copied=", IntegerToString(copied), " err=", IntegerToString(GetLastError()));
       return false;
    }
 
@@ -90,16 +112,42 @@ bool ComputeVolumeSignal(const string symbol, string &out_json)
 
 void RunVolumeMoveAverage()
 {
+   int log_handle = INVALID_HANDLE;
+   OpenLogFile(VolumeLogFileName, log_handle);
+
+   if(log_handle != INVALID_HANDLE)
+   {
+      FileWrite(log_handle, "=== Início da rotina Volume Move Average: ", TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS), " ===");
+      FileWrite(log_handle, "URL: ", InpVolumeN8N_URL);
+      FileWrite(log_handle, "Timeframe: ", EnumToString(InpVolumeTimeframe));
+      FileWrite(log_handle, "MA Period: ", IntegerToString(InpVolumeMA_Period));
+      FileWrite(log_handle, "Shift: ", IntegerToString(InpVolume_Shift));
+      FileWrite(log_handle, "");
+   }
+
    string tickers[];
    int count = GetTickers(tickers);
 
    if(count <= 0)
    {
       Print("[volumeMoveAverage] Nenhum ticker obtido da API/cache");
+      if(log_handle != INVALID_HANDLE)
+      {
+         FileWrite(log_handle, "Nenhum ticker obtido da API/cache");
+         FileWrite(log_handle, "=== Rotina Volume Move Average finalizada ===");
+      }
+      CloseLogFile(log_handle);
       return;
    }
 
    PrintFormat("[volumeMoveAverage] Processando %d tickers...", count);
+
+   if(log_handle != INVALID_HANDLE)
+      FileWrite(log_handle, "Total tickers lidos: ", IntegerToString(count));
+
+   int processados = 0;
+   int enviados_ok = 0;
+   int erros = 0;
 
    for(int i = 0; i < count; i++)
    {
@@ -109,21 +157,47 @@ void RunVolumeMoveAverage()
       if(symbol == "")
          continue;
 
+      processados++;
+
+      if(log_handle != INVALID_HANDLE)
+      {
+         FileWrite(log_handle, "---");
+         FileWrite(log_handle, "Ativo: ", symbol);
+      }
+
       if(!SymbolSelect(symbol, true))
       {
-         Print("[volumeMoveAverage] SymbolSelect falhou: ", symbol, " err=", GetLastError());
+         int err = GetLastError();
+         Print("[volumeMoveAverage] SymbolSelect falhou: ", symbol, " err=", err);
+         if(log_handle != INVALID_HANDLE)
+            FileWrite(log_handle, "FALHA SymbolSelect. err=", IntegerToString(err));
+         erros++;
          continue;
       }
 
       string payload;
-      if(!ComputeVolumeSignal(symbol, payload))
+      if(!ComputeVolumeSignal(symbol, payload, log_handle))
+      {
+         erros++;
          continue;
+      }
 
       if(StringLen(payload) > 2)
          payload = StringSubstr(payload, 0, StringLen(payload) - 1) + ",\"trigger\":\"SCHEDULED\"}";
 
-      SendToN8N_Volume(payload);
+      if(SendToN8N_Volume(payload, log_handle))
+         enviados_ok++;
+      else
+         erros++;
       Sleep(150);
    }
+
+   if(log_handle != INVALID_HANDLE)
+   {
+      FileWrite(log_handle, "");
+      FileWrite(log_handle, "Resumo: processados=", IntegerToString(processados), " enviados=", IntegerToString(enviados_ok), " erros=", IntegerToString(erros));
+      FileWrite(log_handle, "=== Rotina Volume Move Average finalizada ===");
+   }
+   CloseLogFile(log_handle);
 }
 //+------------------------------------------------------------------+
